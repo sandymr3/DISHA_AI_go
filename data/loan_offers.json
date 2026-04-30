@@ -1,0 +1,41 @@
+[
+  {
+    "id": "HDFC-CREDILA",
+    "lenderName": "HDFC Credila",
+    "maxAmountLakh": 75,
+    "rateMin": 9.85,
+    "rateMax": 11.5,
+    "moratoriumMonths": 18,
+    "repaymentYears": 12,
+    "processingFeePercent": 1.0,
+    "collateralRequired": false,
+    "usp": "Highest loan amount, fastest processing",
+    "processingDays": 7
+  },
+  {
+    "id": "AVANSE",
+    "lenderName": "Avanse Financial",
+    "maxAmountLakh": 60,
+    "rateMin": 10.5,
+    "rateMax": 12.25,
+    "moratoriumMonths": 12,
+    "repaymentYears": 10,
+    "processingFeePercent": 1.5,
+    "collateralRequired": false,
+    "usp": "Disbursal within 72 hours of approval",
+    "processingDays": 5
+  },
+  {
+    "id": "INCRED",
+    "lenderName": "InCred Finance",
+    "maxAmountLakh": 45,
+    "rateMin": 11.0,
+    "rateMax": 13.5,
+    "moratoriumMonths": 12,
+    "repaymentYears": 8,
+    "processingFeePercent": 0.5,
+    "collateralRequired": false,
+    "usp": "Lowest processing fee, no hidden charges",
+    "processingDays": 10
+  }
+]
