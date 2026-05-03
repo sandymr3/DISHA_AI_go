@@ -22,6 +22,7 @@ import (
 	"disha-backend/internal/applications"
 	"disha-backend/internal/ecp"
 	"disha-backend/internal/handlers"
+	"disha-backend/internal/ingestion"
 	"disha-backend/internal/loans"
 	"disha-backend/internal/matching"
 	"disha-backend/internal/middleware"
@@ -63,6 +64,21 @@ func main() {
 	appStore := applications.NewStore()
 	rateLimiter := ai.NewRateLimiter(ctx, cfg.RateLimitRequests, cfg.RateLimitWindowHours)
 
+	// Firestore (Dynamic DB)
+	firestoreClient, err := data.NewFirestoreClient(ctx, "disha-ai-xyz", "")
+	if err != nil {
+		slog.Warn("Failed to initialize Firestore (continuing without dynamic ingestion DB)", "error", err)
+	}
+
+	// Serper.dev
+	serperAPIKey := os.Getenv("SERPER_API_KEY")
+	var serperClient *ingestion.SerperClient
+	if serperAPIKey != "" {
+		serperClient = ingestion.NewSerperClient(serperAPIKey)
+	} else {
+		slog.Warn("SERPER_API_KEY not set - dynamic search/ingestion will fail")
+	}
+
 	// Gemini AI client (optional)
 	aiClient, err := ai.NewClient(ctx, cfg.GoogleAPIKey)
 	if err != nil {
@@ -85,6 +101,8 @@ func main() {
 	passportHandler := handlers.NewPassportHandler(studentStore, matcher)
 	dreamGapHandler := handlers.NewDreamGapHandler(studentStore, matcher)
 	roiHandler := handlers.NewROIHandler(studentStore, matcher)
+	ingestHandler := handlers.NewIngestionHandler(serperClient, aiClient, firestoreClient)
+	searchHandler := handlers.NewSearchHandler(firestoreClient)
 
 	// --- Setup router ---
 	r := chi.NewRouter()
@@ -118,6 +136,10 @@ func main() {
 
 		// ROI
 		r.Post("/roi/calculate", roiHandler.Calculate)
+
+		// Ingestion (dynamic scraping/search)
+		r.Post("/ingest", ingestHandler.HandleIngest)
+		r.Get("/search/autocomplete", searchHandler.HandleAutocomplete)
 
 		// Chat
 		r.Post("/chat", chatHandler.Handle)
