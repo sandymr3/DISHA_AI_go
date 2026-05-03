@@ -65,18 +65,38 @@ func main() {
 	appStore := applications.NewStore()
 	rateLimiter := ai.NewRateLimiter(ctx, cfg.RateLimitRequests, cfg.RateLimitWindowHours)
 
-	// Firestore (Dynamic DB)
+	// --- Firebase / Firestore setup ---
 	projectID := os.Getenv("FIREBASE_PROJECT_ID")
 	if projectID == "" {
 		projectID = "disha-ai-d9394"
 	}
 	credsJSON := os.Getenv("FIREBASE_SERVICE_ACCOUNT_JSON")
+
+	// Firestore (for dynamic university DB + student persistence)
 	firestoreClient, err := data.NewFirestoreClient(ctx, projectID, credsJSON)
 	if err != nil {
-		slog.Warn("Failed to initialize Firestore (continuing without dynamic ingestion DB)", "error", err)
+		slog.Warn("Failed to initialize Firestore (continuing without Firestore persistence)", "error", err)
 	}
 
-	// Serper.dev
+	// Firebase Auth middleware (for verifying client ID tokens)
+	var fbAuthMiddleware *middleware.FirebaseAuth
+	fbAuthMiddleware, err = middleware.NewFirebaseAuth(ctx, projectID, credsJSON)
+	if err != nil {
+		slog.Warn("Failed to initialize Firebase Auth middleware (auth verification disabled)", "error", err)
+	} else {
+		slog.Info("Firebase Auth middleware initialized", "projectID", projectID)
+	}
+
+	// Firestore-backed student store (used when auth is available)
+	var fsStudentStore *students.FirestoreStore
+	if firestoreClient != nil {
+		fsStudentStore = students.NewFirestoreStore(firestoreClient)
+		slog.Info("Firestore student store active — profiles will persist across restarts")
+	} else {
+		slog.Warn("Firestore student store unavailable — using in-memory store only")
+	}
+
+	// --- Serper.dev ---
 	serperAPIKey := os.Getenv("SERPER_API_KEY")
 	var serperClient *ingestion.SerperClient
 	if serperAPIKey != "" {
@@ -85,7 +105,7 @@ func main() {
 		slog.Warn("SERPER_API_KEY not set - dynamic search/ingestion will fail")
 	}
 
-	// Gemini AI client (optional)
+	// --- Gemini AI client (optional) ---
 	aiClient, err := ai.NewClient(ctx, cfg.GoogleAPIKey)
 	if err != nil {
 		slog.Error("failed to create Gemini client, chat will use fallbacks", "error", err)
@@ -94,12 +114,12 @@ func main() {
 		slog.Warn("GOOGLE_API_KEY not set — chat endpoint will use fallback responses")
 	}
 
-	// --- Pre-load demo students ---
+	// --- Pre-load demo students into in-memory store ---
 	loadDemoStudents(ctx, studentStore)
 
 	// --- Create handlers ---
 	ecpHandler := handlers.NewECPHandler()
-	studentsHandler := handlers.NewStudentsHandler(studentStore)
+	studentsHandler := handlers.NewStudentsHandlerWithFirestore(studentStore, fsStudentStore)
 	uniHandler := handlers.NewUniversitiesHandler(matcher, studentStore)
 	loansHandler := handlers.NewLoansHandler(loanOffers, studentStore, appStore)
 	chatHandler := handlers.NewChatHandler(aiClient, studentStore, matcher, rateLimiter)
@@ -113,53 +133,60 @@ func main() {
 	// --- Setup router ---
 	r := chi.NewRouter()
 
-	// Middleware stack
+	// Global middleware stack
 	r.Use(middleware.Recovery())
 	r.Use(middleware.RequestID())
 	r.Use(middleware.CORS(cfg.CORSAllowedOrigins))
 	r.Use(middleware.Logging())
 
-	// Routes
-	r.Route("/api/v1", func(r chi.Router) {
-		r.Get("/health", healthHandler.Handle)
+	// authMiddleware wraps a route if Firebase Auth is available; otherwise passes through.
+	optionalAuth := func(next http.Handler) http.Handler {
+		if fbAuthMiddleware != nil {
+			return fbAuthMiddleware.Middleware(next)
+		}
+		return next // pass-through — no auth verification in dev without creds
+	}
 
-		// ECP scoring
+	r.Route("/api/v1", func(r chi.Router) {
+		// ─── Public routes (no auth required) ───────────────────────────────
+		r.Get("/health", healthHandler.Handle)
 		r.Post("/ecp/calculate", ecpHandler.Calculate)
 		r.Post("/ecp/simulate", ecpHandler.Simulate)
-
-		// Students
-		r.Post("/students", studentsHandler.Create)
-		r.Get("/students/{studentId}", studentsHandler.Get)
-		r.Put("/students/{studentId}", studentsHandler.Update)
-
-		// Universities
-		r.Get("/universities", uniHandler.GetAll)
-		r.Get("/universities/match", uniHandler.Match)
-		r.Get("/universities/{universityId}", uniHandler.GetByID)
-
-		// Loans
-		r.Get("/loans/offers", loansHandler.GetOffers)
-		r.Post("/loans/emi", loansHandler.CalculateEMI)
-
-		// ROI
-		r.Post("/roi/calculate", roiHandler.Calculate)
-
-		// Ingestion (dynamic scraping/search)
-		r.Post("/ingest", ingestHandler.HandleIngest)
 		r.Get("/search/autocomplete", searchHandler.HandleAutocomplete)
 
+		// ─── Optional-auth ingestion ─────────────────────────────────────────
+		r.Post("/ingest", ingestHandler.HandleIngest)
+
+		// ─── Auth-protected routes ───────────────────────────────────────────
+		// Students — auth injects UID so Firestore uses it as doc ID
+		r.With(optionalAuth).Post("/students", studentsHandler.Create)
+		r.With(optionalAuth).Get("/students/{studentId}", studentsHandler.Get)
+		r.With(optionalAuth).Put("/students/{studentId}", studentsHandler.Update)
+
+		// Universities
+		r.With(optionalAuth).Get("/universities", uniHandler.GetAll)
+		r.With(optionalAuth).Get("/universities/match", uniHandler.Match)
+		r.With(optionalAuth).Get("/universities/{universityId}", uniHandler.GetByID)
+
+		// Loans
+		r.With(optionalAuth).Get("/loans/offers", loansHandler.GetOffers)
+		r.With(optionalAuth).Post("/loans/emi", loansHandler.CalculateEMI)
+
+		// ROI
+		r.With(optionalAuth).Post("/roi/calculate", roiHandler.Calculate)
+
 		// Chat
-		r.Post("/chat", chatHandler.Handle)
+		r.With(optionalAuth).Post("/chat", chatHandler.Handle)
 
 		// Applications
-		r.Post("/applications", loansHandler.CreateApplication)
-		r.Get("/applications/{applicationId}", loansHandler.GetApplication)
+		r.With(optionalAuth).Post("/applications", loansHandler.CreateApplication)
+		r.With(optionalAuth).Get("/applications/{applicationId}", loansHandler.GetApplication)
 
 		// Funding Passport
-		r.Get("/funding-passport/{studentId}", passportHandler.Handle)
+		r.With(optionalAuth).Get("/funding-passport/{studentId}", passportHandler.Handle)
 
 		// Dream Gap
-		r.Get("/dream-gap", dreamGapHandler.Handle)
+		r.With(optionalAuth).Get("/dream-gap", dreamGapHandler.Handle)
 	})
 
 	// --- Start server ---
@@ -193,6 +220,8 @@ func main() {
 		"version", version,
 		"env", cfg.Env,
 		"gemini", cfg.HasGeminiKey(),
+		"firestore", firestoreClient != nil,
+		"firebase_auth", fbAuthMiddleware != nil,
 	)
 
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
