@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
 	"strings"
 
@@ -45,6 +46,7 @@ func (h *SearchHandler) HandleAutocomplete(w http.ResponseWriter, r *http.Reques
 			break
 		}
 		if err != nil {
+			slog.Error("Firestore autocomplete error", "err", err)
 			WriteError(w, r, "FIRESTORE_ERR", "Failed to query autocomplete", http.StatusInternalServerError)
 			return
 		}

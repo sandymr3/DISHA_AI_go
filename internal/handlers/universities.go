@@ -5,8 +5,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"disha-backend/internal/matching"
 	"disha-backend/internal/ecp"
+	"disha-backend/internal/matching"
 	"disha-backend/internal/students"
 )
 
@@ -19,6 +19,12 @@ type UniversitiesHandler struct {
 // NewUniversitiesHandler creates a new universities handler.
 func NewUniversitiesHandler(matcher *matching.Matcher, store *students.Store) *UniversitiesHandler {
 	return &UniversitiesHandler{matcher: matcher, store: store}
+}
+
+// GetAll handles GET /api/v1/universities
+func (h *UniversitiesHandler) GetAll(w http.ResponseWriter, r *http.Request) {
+	allUnis := h.matcher.AllUniversities()
+	WriteSuccess(w, r, allUnis, http.StatusOK)
 }
 
 // Match handles GET /api/v1/universities/match?studentId=&country=&program=

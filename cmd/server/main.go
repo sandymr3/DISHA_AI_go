@@ -17,9 +17,10 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"disha-backend/config"
-	"disha-backend/data"
+	staticdata "disha-backend/data"
 	"disha-backend/internal/ai"
 	"disha-backend/internal/applications"
+	"disha-backend/internal/data"
 	"disha-backend/internal/ecp"
 	"disha-backend/internal/handlers"
 	"disha-backend/internal/ingestion"
@@ -47,13 +48,13 @@ func main() {
 
 	// --- Load embedded data ---
 	var universities []matching.University
-	if err := json.Unmarshal(data.UniversitiesJSON, &universities); err != nil {
+	if err := json.Unmarshal(staticdata.UniversitiesJSON, &universities); err != nil {
 		log.Fatalf("FATAL: failed to parse universities.json: %v", err)
 	}
 	slog.Info("loaded universities", "count", len(universities))
 
 	var loanOffers []loans.LoanOffer
-	if err := json.Unmarshal(data.LoanOffersJSON, &loanOffers); err != nil {
+	if err := json.Unmarshal(staticdata.LoanOffersJSON, &loanOffers); err != nil {
 		log.Fatalf("FATAL: failed to parse loan_offers.json: %v", err)
 	}
 	slog.Info("loaded loan offers", "count", len(loanOffers))
@@ -65,7 +66,12 @@ func main() {
 	rateLimiter := ai.NewRateLimiter(ctx, cfg.RateLimitRequests, cfg.RateLimitWindowHours)
 
 	// Firestore (Dynamic DB)
-	firestoreClient, err := data.NewFirestoreClient(ctx, "disha-ai-xyz", "")
+	projectID := os.Getenv("FIREBASE_PROJECT_ID")
+	if projectID == "" {
+		projectID = "disha-ai-d9394"
+	}
+	credsJSON := os.Getenv("FIREBASE_SERVICE_ACCOUNT_JSON")
+	firestoreClient, err := data.NewFirestoreClient(ctx, projectID, credsJSON)
 	if err != nil {
 		slog.Warn("Failed to initialize Firestore (continuing without dynamic ingestion DB)", "error", err)
 	}
@@ -127,6 +133,7 @@ func main() {
 		r.Put("/students/{studentId}", studentsHandler.Update)
 
 		// Universities
+		r.Get("/universities", uniHandler.GetAll)
 		r.Get("/universities/match", uniHandler.Match)
 		r.Get("/universities/{universityId}", uniHandler.GetByID)
 

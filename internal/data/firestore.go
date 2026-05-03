@@ -18,10 +18,10 @@ type FirestoreClient struct {
 // Ensure you export the credentials as a file, and point the GOOGLE_APPLICATION_CREDENTIALS
 // environment variable to it, or pass the json credential path to this function.
 // For MVP, if credentials file is empty, we will try default auth.
-func NewFirestoreClient(ctx context.Context, projectID string, credsFile string) (*FirestoreClient, error) {
+func NewFirestoreClient(ctx context.Context, projectID string, credsJSON string) (*FirestoreClient, error) {
 	var opts []option.ClientOption
-	if credsFile != "" {
-		opts = append(opts, option.WithCredentialsFile(credsFile))
+	if credsJSON != "" {
+		opts = append(opts, option.WithCredentialsJSON([]byte(credsJSON)))
 	}
 
 	config := &firebase.Config{ProjectID: projectID}

@@ -28,7 +28,8 @@ Extract university program data from the provided raw website text.
 Always output valid JSON satisfying the schema.
 If a fee is provided in a foreign currency, estimate it in INR (assuming 1 USD = 83 INR, 1 GBP = 105 INR) and provide both.
 If exactly one program is described, extract it. If multiple are described, pick the most prominent target program (like MS in CS or MBA).
-Make educated estimates for PostStudySalaryUSD and AdmitProbability (dictionary mapped to Green, Amber, Red student tiers) based on the rank.
+Make an educated estimate for postStudySalaryUSD as a single integer value.
+Make an educated estimate for admitProbability as a dictionary mapped to "Green", "Amber", "Red" student tiers based on the rank.
 Return ONLY the raw JSON string.`
 
 	config := &genai.GenerateContentConfig{
@@ -37,7 +38,7 @@ Return ONLY the raw JSON string.`
 		},
 		Temperature: genai.Ptr[float32](0.1),
 		// Note: The newer SDK might use ResponseMimeType "application/json"
-		ResponseMimeType: "application/json",
+		ResponseMIMEType: "application/json",
 	}
 
 	contents := []*genai.Content{
