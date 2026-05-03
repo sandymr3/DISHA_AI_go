@@ -4,6 +4,8 @@ package config
 import (
 	"os"
 	"strconv"
+
+	"github.com/joho/godotenv"
 )
 
 // Config holds all environment-sourced configuration values.
@@ -31,6 +33,9 @@ type Config struct {
 
 // Load reads configuration from environment variables with sensible defaults.
 func Load() Config {
+	// Attempt to load .env file; ignore if not found
+	_ = godotenv.Load()
+
 	return Config{
 		GoogleAPIKey:         os.Getenv("GOOGLE_API_KEY"),
 		Port:                 envOrDefault("PORT", "8080"),
